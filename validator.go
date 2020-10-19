@@ -2,7 +2,7 @@ package validator
 
 import (
 	"errors"
-	"github.com/apptut/validator/rules"
+	"github.com/ntt360/validator/rules"
 	"reflect"
 	"strings"
 )
@@ -73,7 +73,7 @@ func New(data map[string][]string, rules interface{}, args ...map[string]string)
 func formatRules(rules interface{}) map[string][]string {
 
 	rulesType := reflect.TypeOf(rules).String()
-	if rulesType != "map[string][]string" && rulesType != "map[string]string" {
+	if rulesType != "map[string][]string" && rulesType != "map[string]string" && rulesType != "map[string]interface {}" {
 		panic("the rules only support map[string][]string or map[string]string")
 	}
 
@@ -86,34 +86,48 @@ func formatRules(rules interface{}) map[string][]string {
 		if rulesItem.Kind() == reflect.String {
 			itemStr := strings.Split(rulesItem.Interface().(string), "|")
 			fmtRules[keyStr] = itemStr
-		} else {
+		} else if rulesItem.Kind() == reflect.Interface {
+			// try to assert to string
+			tmpVal, ok := rulesItem.Interface().(string)
+			if ok {
+				fmtRules[keyStr] = strings.Split(tmpVal, "|")
+				continue
+			}
+
+			tmpArr, ok := rulesItem.Interface().([]string)
+			if ok {
+				fmtRules[keyStr] = tmpArr
+			}
+
+		} else if rulesItem.Kind() == reflect.Slice {
 			fmtRules[keyStr] = rulesItem.Interface().([]string)
 		}
 	}
+
 	return fmtRules
 }
 
-func (this *Validator) run() (*Validator, error) {
-	for key, item := range this.rules {
-		this.parse(key, item)
+func (v *Validator) run() (*Validator, error) {
+	for key, item := range v.rules {
+		v.parse(key, item)
 	}
 
-	if this.ValidErrors != nil || len(this.ValidErrors) > 0 {
-		err := this.ValidErrors[0]
+	if v.ValidErrors != nil || len(v.ValidErrors) > 0 {
+		err := v.ValidErrors[0]
 		val, ok := err.Errors["def"]
 		if !ok {
 			for _, item := range err.Errors {
-				return this, errors.New(item)
+				return v, errors.New(item)
 			}
 		}
 
-		return this, errors.New(val)
+		return v, errors.New(val)
 	}
 
-	return this, nil
+	return v, nil
 }
 
-func (this *Validator) parse(key string, rules []string) {
+func (v *Validator) parse(key string, rules []string) {
 	for _, rule := range rules {
 		flagIndex := strings.Split(rule, ":")
 		param := ""
@@ -127,17 +141,17 @@ func (this *Validator) parse(key string, rules []string) {
 			panic(ruleName + "the valid rule not exist")
 		}
 
-		if this.isVerifiable(key, rules) {
+		if v.isVerifiable(key, rules) {
 			dynamicFunc := reflect.ValueOf(validateMap[ucfirst(ruleName)])
 			if dynamicFunc.IsValid() {
-				value := this.data[key]
+				value := v.data[key]
 				arguments := make([]reflect.Value, 2) // 传递2个固定参数
 				arguments[0] = reflect.ValueOf(value)
 				arguments[1] = reflect.ValueOf(param)
 				result := dynamicFunc.Call(arguments)
-				ok := result[0].Interface().(bool);
+				ok := result[0].Interface().(bool)
 				if !ok {
-					this.addErrors(key, ruleName, value)
+					v.addErrors(key, ruleName, value)
 				}
 			}
 		}
@@ -150,24 +164,24 @@ func (this *Validator) parse(key string, rules []string) {
  * @param key
  * @param rule
  */
-func (this *Validator) addErrors(field string, rule string, value []string) {
-	customMsg, exist := this.customMsg[field] // 获取是否对验证字段存在自定义错误提示
+func (v *Validator) addErrors(field string, rule string, value []string) {
+	customMsg, exist := v.customMsg[field] // 获取是否对验证字段存在自定义错误提示
 	if exist {
 		// 检测是否存在默认值, 字段优先级高于其他优先级
 		msg, ok := customMsg["def"]
 		if ok {
-			this.insertError("def", field, msg, rule)
+			v.insertError("def", field, msg, rule)
 		}
 		// 检测是否存在具体匹配错误内容
 		fieldMsg, fieldOk := customMsg[rule]
 		if !fieldOk {
-			this.notExistCustomInsert(field, rule)
+			v.notExistCustomInsert(field, rule)
 		} else {
 			key := rule
-			this.insertError(key, field, fieldMsg, rule)
+			v.insertError(key, field, fieldMsg, rule)
 		}
 	} else {
-		this.notExistCustomInsert(field, rule)
+		v.notExistCustomInsert(field, rule)
 	}
 }
 
@@ -177,10 +191,10 @@ func (this *Validator) addErrors(field string, rule string, value []string) {
  * @param field {string} 需要验证的字段
  * @param rule {string} 验证规则
  */
-func (this *Validator) notExistCustomInsert(field string, rule string) {
+func (v *Validator) notExistCustomInsert(field string, rule string) {
 	msg := "the field " + field + " not valid in " + rule
 	key := rule
-	this.insertError(key, field, msg, rule)
+	v.insertError(key, field, msg, rule)
 }
 
 /**
@@ -189,21 +203,21 @@ func (this *Validator) notExistCustomInsert(field string, rule string) {
  * @param field {string} 需要验证的字段
  * @param rule {string} 验证规则
  */
-func (this *Validator) insertError(key string, field string, msg string, rule string) {
-	if this.ValidErrors == nil {
+func (v *Validator) insertError(key string, field string, msg string, rule string) {
+	if v.ValidErrors == nil {
 		itemErrors := make(map[string]string)
 		itemErrors[key] = msg
 		validErrItem := ValidError{Field: field, Errors: itemErrors}
-		this.ValidErrors = []ValidError{validErrItem}
+		v.ValidErrors = []ValidError{validErrItem}
 	} else {
-		index := this.existError(field)
+		index := v.existError(field)
 		if index >= 0 {
-			this.ValidErrors[index].Errors[key] = msg
+			v.ValidErrors[index].Errors[key] = msg
 		} else {
 			itemErrors := make(map[string]string)
 			itemErrors[key] = msg
 			newValidErr := ValidError{Field: field, Errors: itemErrors}
-			this.ValidErrors = append(this.ValidErrors, newValidErr)
+			v.ValidErrors = append(v.ValidErrors, newValidErr)
 		}
 	}
 }
@@ -215,8 +229,8 @@ func (this *Validator) insertError(key string, field string, msg string, rule st
  * @param rule
  * @return int
  */
-func (this *Validator) existError(field string) int {
-	for key, item := range this.ValidErrors {
+func (v *Validator) existError(field string) int {
+	for key, item := range v.ValidErrors {
 		if item.Field == field {
 			return key
 		}
@@ -231,8 +245,8 @@ func (this *Validator) existError(field string) int {
  * @param rules
  * @return bool
  */
-func (this *Validator) isVerifiable(key string, rules []string) bool {
-	rule, ok := this.data[key]
+func (v *Validator) isVerifiable(key string, rules []string) bool {
+	rule, ok := v.data[key]
 	if inArray(rules, "nullable") {
 		if !ok {
 			return false
@@ -252,7 +266,7 @@ func (this *Validator) isVerifiable(key string, rules []string) bool {
 	return true
 }
 
-func (this *Validator) parseMessage(message map[string]string) {
+func (v *Validator) parseMessage(message map[string]string) {
 	if len(message) == 0 {
 		return
 	}
@@ -261,14 +275,14 @@ func (this *Validator) parseMessage(message map[string]string) {
 			itemArr := strings.Split(key, ".")
 			field := itemArr[0]
 			rule := itemArr[1]
-			_, ok := this.data[field]
+			_, ok := v.data[field]
 			if _, exist := validateMap[ucfirst(rule)]; exist && ok {
-				this.addMessage(field, rule, item)
+				v.addMessage(field, rule, item)
 			}
 		} else {
-			_, ok := this.data[key]
+			_, ok := v.data[key]
 			if ok {
-				this.addMessage(key, "", item)
+				v.addMessage(key, "", item)
 			}
 		}
 	}
@@ -280,7 +294,7 @@ func (this *Validator) parseMessage(message map[string]string) {
  * @param str
  * @return string
  */
-func (this *Validator) addMessage(field string, rule string, message string) {
+func (v *Validator) addMessage(field string, rule string, message string) {
 	newMsg := make(map[string]string)
 	if len(rule) > 0 { // 带具体条件错误提示
 		newMsg[rule] = message
@@ -288,16 +302,16 @@ func (this *Validator) addMessage(field string, rule string, message string) {
 		newMsg["def"] = message
 	}
 
-	if this.customMsg == nil {
-		this.customMsg = make(map[string]CustomMsgElem)
-		this.customMsg[field] = newMsg
+	if v.customMsg == nil {
+		v.customMsg = make(map[string]CustomMsgElem)
+		v.customMsg[field] = newMsg
 	} else {
 		for key, item := range newMsg {
-			_, ok := this.customMsg[field]
+			_, ok := v.customMsg[field]
 			if ok {
-				this.customMsg[field][key] = item
+				v.customMsg[field][key] = item
 			} else {
-				this.customMsg[field] = map[string]string{
+				v.customMsg[field] = map[string]string{
 					key: item,
 				}
 			}
@@ -323,7 +337,7 @@ func ucfirst(str string) string {
  * @param elem
  * @return bool
  */
-func inArray(arr []string, elem string) (bool) {
+func inArray(arr []string, elem string) bool {
 	for _, val := range arr {
 		if elem == val {
 			return true
@@ -338,7 +352,7 @@ func inArray(arr []string, elem string) (bool) {
  * @param data map[string]string 验证的值
  * @param rules map[string]string 验证规则
  */
-func (this *Validator) missingCheck(data map[string][]string, rules map[string][]string) bool {
+func (v *Validator) missingCheck(data map[string][]string, rules map[string][]string) bool {
 	if len(rules) == 0 {
 		panic("验证规则不存在")
 		return false
@@ -347,9 +361,9 @@ func (this *Validator) missingCheck(data map[string][]string, rules map[string][
 		_, ok := data[key]
 		if !inArray(item, "nullable") && !ok {
 			msg := "the param " + key + " not valid!"
-			this.insertError("def", key, msg, "no")
+			v.insertError("def", key, msg, "no")
 		}
 	}
 
-	return this.ValidErrors == nil || len(this.ValidErrors) <= 0
+	return v.ValidErrors == nil || len(v.ValidErrors) <= 0
 }

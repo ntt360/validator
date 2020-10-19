@@ -96,15 +96,15 @@ rules := map[string]string{
 
 ```go
 rules := map[string]string{
-    "mobile" : "min:1|regex:^1[0-9]{10}$",
+    "mobile" : "regex:^1[0-9]{10}$",
 }
 ```
 
-但是，如果一个正则验证中包含`|`符号时，则比较特殊，因为验证器本身是基于`|`来切分验证规则的，如果正则表达式中包含改符号会引起验证器错误拆分验证规则问题，那么此时，我们需要把所有验证规则放在一个`slice`切片中即可：
+如果正则包含 `|` 符号，那么需要按照如下方式验证，因为 `|` 被作为做个验证规则分割符号占用：
 
 ```go
-rules := map[string][]string{
-    "mobile" : {"min:1", "regex:^1[0-9]{10}$"}
+rules := map[string]interface{
+    "username" : {"regex:^[a-z|0-9]{1,20}$"}
 }
 ```
 

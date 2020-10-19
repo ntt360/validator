@@ -8,8 +8,8 @@ func TestNew(t *testing.T) {
 		"hello": {"2"},
 	}
 
-	rules := map[string]string{
-		"hello": "gt:2",
+	rules := map[string][]string{
+		"golang": {"min:1", "regex:^\\w$"},
 	}
 
 	_, err := New(data, rules)

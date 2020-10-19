@@ -157,7 +157,7 @@ func Numeric(value []string, _ string) bool {
 /**
  * 可选项不需要任何验证
  */
-func Nullable(value []string, _ string) bool {
+func Nullable(_ []string, _ string) bool {
 	return true
 }
 
